@@ -14,17 +14,15 @@ using namespace std;
  */
 #define CALL(F, A, T) \
     ([A](){ \
-        sigCall = F; \
         sigArgs = (void*)A; \
         jmp_buf buf; \
         jmpBuf = &buf; \
-        if (!sigsetjmp(buf, SIGSEGV)) { *(char*)0 = 0; } \
+        if (!sigsetjmp(buf, SIGSEGV)) { *(char*)(&F) = 0; } \
         return (T)(*(T*)sigResult); \
     })()
 
 void *sigArgs;
 void *sigResult = nullptr;
-void *(*sigCall)(void*);
 jmp_buf *jmpBuf;
 
 void *add(void *args) {
@@ -47,17 +45,25 @@ void *vec3Add(void *args) {
     return resPtr;
 }
 
-void segv_handler(int sig) {
+void segv_handler(int sig, siginfo_t *info, void *uctx) {
     // clean up the previous return value if it exists
     if (sigResult != nullptr)
         free(sigResult);
 
+    void *(*sigCall)(void*) = (void *(*)(void*)) info->si_addr;
     sigResult = (*sigCall)(sigArgs);
     siglongjmp(*jmpBuf, 1);
 }
 
+void setup_handler() {
+    struct sigaction act = {0};
+    act.sa_sigaction = segv_handler;
+    act.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &act, NULL);
+}
+
 int main() {
-    signal(SIGSEGV, segv_handler);
+    setup_handler();
     
     printf("calling add\n");
     int args[2] = { 3, 7 };
